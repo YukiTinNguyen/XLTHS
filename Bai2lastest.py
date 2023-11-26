@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
 
     # Chia khung tín hiệu, mỗi khung độ dài 20ms
-    frame_length = int(0.02 * Fs)
+    frame_length = int(0.020 * Fs)
     frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
     # Tính STE từng khung
     ste = np.sum(np.square(frames), axis=0)
@@ -43,27 +43,32 @@ def FFT_1vowel_1speaker(audio, Fs, N_FFT=512):
     """
 
     # Chia khung tín hiệu, mỗi khung độ dài 20ms
-    frame_length = int(0.02 * Fs)
+    frame_length = int(0.020 * Fs)
     frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
     #Số khung
     N = frames.shape[1]
     #Chọn vùng ở giữa, M = N//3 khung
     M = N//3
 
+    #tính cửa sổ hamming trước khi FFT để chống rò rỉ dữ liệu
+    hamming_window = np.hamming(frame_length)
+
     # Tính biến đổi Fourier nhanh (FFT) từng khung
     fft_frames = []
     for frame in frames[M:2*M]:
-        fft_result = np.fft.fft(frame, N_FFT)
+        hamming_window_adjusted = hamming_window[:frame.shape[0]]
+        windowed_frame = frame * hamming_window_adjusted
+        fft_result = np.fft.fft(windowed_frame, N_FFT)
         fft_frames.append(fft_result)
 
-    # Tính trung bình cộng của M vector FFT
+    # Tính trung bình cộng vector FFT của M khung
     avg_fft = np.mean(fft_frames, axis=0)
 
     return avg_fft
 
-def FFT_1vowel_nspeaker(vowelchar, N_FFT):
+def FFT_1vowel_nspeaker(vowel_label, N_FFT):
     """ Hàm tính vector đặc trưng fft cho 1 nguyên âm (không phụ thuộc người nói)
-        - Đầu vào là 1 ký hiệu nguyên âm ('a',.., 'u') = tên tệp
+        - Đầu vào là 1 ký hiệu nguyên âm = nhãn ('a',.., 'u')  = tên tệp
         - Bằng cách tính trung bình cộng của 21 người nói khác nhau
         - Trả về 1 vector fft cuối cùng ---> để bỏ vào model
     """
@@ -73,7 +78,7 @@ def FFT_1vowel_nspeaker(vowelchar, N_FFT):
     vectors = []
     
     for foldername in name_folders:
-        file_path = file_path_template.format(foldername, vowelchar)
+        file_path = file_path_template.format(foldername, vowel_label)
         print(file_path) #Dòng này sau này xóa
         audio, Fs = librosa.load(file_path, sr=None)
         vowel = segment_vowel_silence(audio, Fs)
@@ -81,32 +86,30 @@ def FFT_1vowel_nspeaker(vowelchar, N_FFT):
         vectors.append(fft1)
 
     vector_fft = np.mean(vectors, axis=0)
-    print(f"Đã xong chữ {vowelchar}, len(vector_fft) = {len(vector_fft)}")
+    print(f"Đã xong chữ {vowel_label}, len(vector_fft) = {len(vector_fft)}")
     return vector_fft
 
 def matching(vector_x, model_vectors):
     """Hàm so khớp vector_x (input) và model (các vector tham số của 5 nguyên âm)
+    * Đầu vào:
+      - vector_x: vector đặc trưng của 1 file tín hiệu kiểm thử
+      - model là Bộ Vector tham số fft của 5 nguyên âm
+        # model_vectors[0] = vector_a,
+        # model_vectors[1] = vector_e,
+        # model_vectors[2] = vector_i,
+        # model_vectors[3] = vector_o,
+        # model_vectors[4] = vector_u]
+    * Đầu ra:
         Trả về kết quả là Nguyên âm có khoảng cách Euclid nhỏ nhất
     """
-    # Danh sách các vector tham số fft của 5 nguyên âm
-    # model_vectors[0] = vector_a,
-    # model_vectors[1] = vector_e,
-    # model_vectors[2] = vector_i,
-    # model_vectors[3] = vector_o,
-    # model_vectors[4] = vector_u]
-
-    # Các nhãn tương ứng
+    # Các nhãn
     vowels = ['a', 'e', 'i', 'o', 'u']
-
     # Tính khoảng cách Euclidean giữa vector_x và từng vector trong model
     distances = [np.linalg.norm(vector_x - model_vector) for model_vector in model_vectors]
-
     # Xác định nguyên âm có khoảng cách nhỏ nhất
     min_distance_index = np.argmin(distances)
-
     # Kết quả nhận dạng
     result = vowels[min_distance_index]
-
     return result
 
 def build_model(N_FFT):
@@ -149,6 +152,21 @@ def test(x_test, y_test, model, N_FFT):
     accuracy = accuracy_score(y_test, y_pred)
     return y_pred, accuracy
 
+def plot_vector(vector, label):
+    #Hàm vẽ 1 vector
+    plt.plot(np.real(vector), label=label)
+    plt.xlabel('Dimension')
+    plt.ylabel('Real Value')
+    plt.legend()
+
+def plot_all_vectors(vectors, labels):
+    #Hàm vẽ 5 vector/1 đồ thị
+    for i, vector in enumerate(vectors):
+        plt.plot(np.real(vector), label=labels[i])
+    plt.xlabel('Dimension')
+    plt.ylabel('Real Value')
+    plt.legend()
+
 if __name__ == "__main__":
     #Đọc tên từng file, bỏ vào x_test và y_test
     # train_folders = ["23MTL", "24FTL", "25MLM", "27MCM", "28MVN", "29MHN", "30FTN", "32MTP", "33MHP", "34MQP", "35MMQ",\
@@ -169,41 +187,17 @@ if __name__ == "__main__":
     model2 = build_model(1024)
     model3 = build_model(2048)
 
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(np.real(model1))
-    Y = ['a', 'e', 'i', 'o', 'u']
-    label_to_color = {'a': 'red', 'e': 'blue', 'i': 'green', 'o': 'purple', 'u': 'orange'}
-    Y_colors = [label_to_color[label] for label in Y]
-    plt.scatter(X_pca[:, 0], X_pca[:, 1], c=Y_colors, cmap='viridis', edgecolor='k', s=50)
-    plt.title('Các vector FFT (N_FFT = 512) sau khi giảm chiều')
-    for i, label in enumerate(Y):
-        plt.annotate(label, (X_pca[i, 0], X_pca[i, 1]), textcoords="offset points", xytext=(0,5), ha='center')
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
+    fig, axs = plt.subplots(5, 1, figsize=(10, 15))
+    # Vẽ mỗi vector trên 1 subplot
+    for i, vector in enumerate(model1):
+        plt.sca(axs[i])
+        plot_vector(vector, label=vowel_labels[i])
+    plt.tight_layout()
     plt.show()
 
-    X_pca = pca.fit_transform(np.real(model2))
-    Y = ['a', 'e', 'i', 'o', 'u']
-    label_to_color = {'a': 'red', 'e': 'blue', 'i': 'green', 'o': 'purple', 'u': 'orange'}
-    Y_colors = [label_to_color[label] for label in Y]
-    plt.scatter(X_pca[:, 0], X_pca[:, 1], c=Y_colors, cmap='viridis', edgecolor='k', s=50)
-    plt.title('Các vector FFT (N_FFT = 1024) sau khi giảm chiều')
-    for i, label in enumerate(Y):
-        plt.annotate(label, (X_pca[i, 0], X_pca[i, 1]), textcoords="offset points", xytext=(0,5), ha='center')
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
-    plt.show()
-
-    X_pca = pca.fit_transform(np.real(model3))
-    Y = ['a', 'e', 'i', 'o', 'u']
-    label_to_color = {'a': 'red', 'e': 'blue', 'i': 'green', 'o': 'purple', 'u': 'orange'}
-    Y_colors = [label_to_color[label] for label in Y]
-    plt.scatter(X_pca[:, 0], X_pca[:, 1], c=Y_colors, cmap='viridis', edgecolor='k', s=50)
-    plt.title('Các vector FFT (N_FFT = 2048) sau khi giảm chiều')
-    for i, label in enumerate(Y):
-        plt.annotate(label, (X_pca[i, 0], X_pca[i, 1]), textcoords="offset points", xytext=(0,5), ha='center')
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
+    plt.figure(figsize=(12, 6))
+    # Plot all vectors on the same graph
+    plot_all_vectors(model1, labels=vowel_labels)
     plt.show()
 
     y_pred1, accuracy1 = test(x_test, y_test, model1, 512)
