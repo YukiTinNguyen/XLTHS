@@ -4,9 +4,12 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, confusion_matrix
 import seaborn as sns
 import pandas as pd
+from sklearn.cluster import KMeans
 
+#Tách nguyên âm - dùng lại
 def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
 
+    # Chia khung tín hiệu, mỗi khung độ dài 20ms
     frame_length = int(0.02 * Fs)
     frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
     # Tính STE từng khung
@@ -33,42 +36,37 @@ def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
 
     # Trả về tín hiệu chỉ chứa nguyên âm hay tiếng nói
     vowel = audio[is_speech_full]
-    return vowel
-
-def FFT_1vowel_1speaker(audio, Fs, N_FFT=512):
+    return vowel 
+#MFCC 1 ng âm, 1 ng, xong
+def MFCC_1vowel_1speaker(audio, Fs):
     """
-    Hàm Trích xuất vector FFT của 1 nguyên âm 1 người (1 audio input)
+    Hàm Trích xuất vector MFCC của 1 nguyên âm 1 người (1 audio input)
     """
-
-    # Chia khung tín hiệu, mỗi khung độ dài 20ms
-    frame_length = int(0.020 * Fs)
-    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
+    frame_length = int(0.03 * Fs)
+    hop_length = int(0.02 * Fs)
+    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
     #Số khung
     N = frames.shape[1]
     #Chọn vùng ở giữa, M = N//3 khung
     M = N//3
 
-    #tính cửa sổ hamming trước khi FFT để chống rò rỉ dữ liệu
-    hamming_window = np.hamming(frame_length)
-
-    # Tính biến đổi Fourier nhanh (FFT) từng khung
-    fft_frames = []
+    # Tính vector MFCC từng khung
+    mfcc_frames = []
     for frame in frames[M:2*M]:
-        hamming_window_adjusted = hamming_window[:frame.shape[0]]
-        windowed_frame = frame * hamming_window_adjusted
-        fft_result = np.fft.fft(windowed_frame, N_FFT)
-        fft_frames.append(fft_result)
+        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13, n_fft=2048, hop_length=512)
+        mfcc_frames.append(mfcc_result)
 
-    # Tính trung bình cộng vector FFT của M khung
-    avg_fft = np.mean(fft_frames, axis=0)
+    # Tính trung bình cộng của M vector MFCC
+    avg_mfcc = np.mean(mfcc_frames, axis=0)
 
-    return avg_fft
+    return avg_mfcc
 
-def FFT_1vowel_nspeaker(vowel_label, N_FFT):
-    """ Hàm tính vector đặc trưng fft cho 1 nguyên âm (không phụ thuộc người nói)
-        - Đầu vào là 1 ký hiệu nguyên âm = nhãn ('a',.., 'u')  = tên tệp
+#2 c, d cần kết hợp K-means vào
+def MFCC_1vowel_nspeaker(vowel_label):
+    """ Hàm tính vector đặc trưng MFCC cho 1 nguyên âm (không phụ thuộc người nói)
+        - Đầu vào là 1 ký hiệu nguyên âm ('a',.., 'u') = tên tệp
         - Bằng cách tính trung bình cộng của 21 người nói khác nhau
-        - Trả về 1 vector fft cuối cùng ---> để bỏ vào model
+        - Trả về 1 vector MFCC cuối cùng ---> để bỏ vào model
     """
     name_folders = ["23MTL", "24FTL", "25MLM", "27MCM", "28MVN", "29MHN", "30FTN", "32MTP", "33MHP", "34MQP", "35MMQ",\
          "36MAQ", "37MDS", "38MDS", "39MTS", "40MHS", "41MVS", "42FQT", "43MNT", "44MTT", "45MDV"]
@@ -77,16 +75,18 @@ def FFT_1vowel_nspeaker(vowel_label, N_FFT):
     
     for foldername in name_folders:
         file_path = file_path_template.format(foldername, vowel_label)
-        print(file_path) #Dòng này sau này xóa
+        print(file_path)
         audio, Fs = librosa.load(file_path, sr=None)
         vowel = segment_vowel_silence(audio, Fs)
-        fft1 = FFT_1vowel_1speaker(vowel, Fs, N_FFT=N_FFT)
-        vectors.append(fft1)
+        mfcc1 = MFCC_1vowel_1speaker(audio, Fs)
+        vectors.append(mfcc1)
 
-    vector_fft = np.mean(vectors, axis=0)
-    print(f"Đã xong chữ {vowel_label}, len(vector_fft) = {len(vector_fft)}")
-    return vector_fft
+    vector_mfcc = np.mean(vectors, axis=0)
+    print(f"Đã xong chữ {vowel_label}, len(vector_mfcc) = {len(vector_mfcc)}")
+    print(vector_mfcc)
+    return vector_mfcc
 
+#Cần kết hợp k-means vào
 def matching(vector_x, model_vectors):
     """Hàm so khớp vector_x (input) và model (các vector tham số của 5 nguyên âm)
     * Đầu vào:
@@ -110,26 +110,28 @@ def matching(vector_x, model_vectors):
     result = vowels[min_distance_index]
     return result
 
-def build_model(N_FFT):
-    print("Trích xuất các vector với N_FFT= ",N_FFT)
-    vector_a = FFT_1vowel_nspeaker("a", N_FFT)
-    vector_e = FFT_1vowel_nspeaker("e", N_FFT)
-    vector_i = FFT_1vowel_nspeaker("i", N_FFT)
-    vector_o = FFT_1vowel_nspeaker("o", N_FFT)
-    vector_u = FFT_1vowel_nspeaker("u", N_FFT)
+def build_model():
+    print("Trích xuất các vector MFCC kết hợp thuật toán K-means, với K= ?")
+    vector_a = MFCC_1vowel_nspeaker("a")
+    vector_e = MFCC_1vowel_nspeaker("e")
+    vector_i = MFCC_1vowel_nspeaker("i")
+    vector_o = MFCC_1vowel_nspeaker("o")
+    vector_u = MFCC_1vowel_nspeaker("u")
     model_vectors = [vector_a, vector_e, vector_i, vector_o, vector_u]
     return model_vectors
 
-def readSignals_and_extractionFFT(list_path, N_FFT):
-    fft_vectors = []
+def readSignals_and_extraction_MFCC(list_path):
+    """Đọc tín hiệu rồi trích xuất vector đặc trưng --> dùng cho kiểm thử
+    """
+    mfcc_vectors = []
     for file_path in list_path:
         audio, Fs = librosa.load(file_path, sr=None)
         vowel = segment_vowel_silence(audio, Fs)
-        fft1 = FFT_1vowel_1speaker(vowel, Fs, N_FFT=N_FFT)
-        fft_vectors.append(fft1)
-    return fft_vectors
+        mfcc1 = MFCC_1vowel_1speaker(vowel, Fs)
+        mfcc_vectors.append(mfcc1)
+    return mfcc_vectors
 
-def test(x_test, y_test, model, N_FFT): 
+def test(x_test, y_test, model): 
     """ Hàm dự đoán 1 tập dữ liệu kiểm thử
         x_test: tập kiểm thử với kiểu dữ liệu là .......
         y_test: nhãn của tập kiểm thử
@@ -138,11 +140,11 @@ def test(x_test, y_test, model, N_FFT):
         - Kết quả nhận dạng (dự đoán) nhãn nguyên âm của mỗi file test (/a/, …,/u/), Đúng/Sai
         - Độ chính xác nhận dạng tổng hợp (%)
     """
-    print("Nhận dạng với N_FFT =", N_FFT)
+    print("Nhận dạng với K =?")
     y_pred = []
-    test_fft_vectors = readSignals_and_extractionFFT(x_test, N_FFT)
-    for i in range(len(test_fft_vectors)):
-        one_predict = matching(test_fft_vectors[i], model)
+    test_mfcc_vectors = readSignals_and_extraction_MFCC(x_test)
+    for i in range(len(test_mfcc_vectors)):
+        one_predict = matching(test_mfcc_vectors[i], model)
         y_pred.append(one_predict)
         check = (y_test[i] == one_predict)
         print(f"{x_test[i]} /{one_predict}/ -> {check}")
@@ -181,9 +183,9 @@ if __name__ == "__main__":
             x_test.append(file_path)
             y_test.append(label)
 
-    model1 = build_model(512)
-    model2 = build_model(1024)
-    model3 = build_model(2048)
+    model1 = build_model()
+
+    #------------Vẽ đồ thị các vector------------------
 
     fig, axs = plt.subplots(5, 1, figsize=(10, 15))
     # Vẽ mỗi vector trên 1 subplot
@@ -198,19 +200,18 @@ if __name__ == "__main__":
     plot_all_vectors(model1, labels=vowel_labels)
     plt.show()
 
-    y_pred1, accuracy1 = test(x_test, y_test, model1, 512)
-    y_pred2, accuracy2 = test(x_test, y_test, model2, 1024)
-    y_pred3, accuracy3 = test(x_test, y_test, model3, 2048)
+    #---------------Kiểm thử-------------------------------
+    y_pred1, accuracy1 = test(x_test, y_test, model1)
 
-    print(accuracy1, accuracy2, accuracy3, sep='\n')
+    print("Accuracy:",accuracy1)
 
-    confusion = None
-    if (accuracy1 > accuracy2 and accuracy1 > accuracy3):
-        confusion = confusion_matrix(y_test, y_pred1)
-    elif (accuracy2 > accuracy3):
-        confusion = confusion_matrix(y_test, y_pred2)
-    else:
-        confusion = confusion_matrix(y_test, y_pred3)
+    confusion = confusion_matrix(y_test, y_pred1)
+    # if (accuracy1 > accuracy2 and accuracy1 > accuracy3):
+    #     confusion = confusion_matrix(y_test, y_pred1)
+    # elif (accuracy2 > accuracy3):
+    #     confusion = confusion_matrix(y_test, y_pred2)
+    # else:
+    #     confusion = confusion_matrix(y_test, y_pred3)
     
     class_names = np.unique(y_test)
     df_confusion = pd.DataFrame(confusion, index=class_names, columns=class_names)

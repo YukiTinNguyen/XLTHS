@@ -108,7 +108,7 @@ if __name__ == "__main__":
     # Đọc file âm thanh
     audio, Fs = librosa.load(file_path, sr=None)
     # Gọi hàm để thực hiện segment và nhận đoạn tín hiệu nguyên âm
-    vowel = segment_vowel_silence(audio, Fs, threshold=0.04, min_duration=0.3)
+    vowel = segment_vowel_silence(audio, Fs, threshold=0.05, min_duration=0.3)
     plt.figure(figsize=(10, 4))
     plt.plot(vowel, label='Vowel Segment', color='purple')
     plt.xlabel('Sample Index')
