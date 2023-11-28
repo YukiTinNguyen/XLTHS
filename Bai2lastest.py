@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, confusion_matrix
 import seaborn as sns
 import pandas as pd
+from scipy.signal import windows
 
-def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
+def segment_vowel_silence(audio, Fs, threshold = 0.04, min_duration=0.3):
 
     frame_length = int(0.02 * Fs)
     frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
@@ -31,38 +32,44 @@ def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
         if duration < min_duration:
             is_speech_full[start:end] = True
 
-    # Trả về tín hiệu chỉ chứa nguyên âm hay tiếng nói
-    vowel = audio[is_speech_full]
-    return vowel
+    # Tìm vị trí của các khung nguyên âm
+    vowel_indices = np.where(is_speech_full)[0]
+
+    # Chia thành 3 đoạn và lấy đoạn giữa
+    if len(vowel_indices) >= 3:
+        start_index = vowel_indices[len(vowel_indices) // 3]
+        end_index = vowel_indices[2 * len(vowel_indices) // 3]
+        vowel_middle_segment = audio[start_index:end_index]
+    else:
+        vowel_middle_segment = audio
+
+    return vowel_middle_segment
+
+def nomalizing_value(fft_vector):
+    magnitude_spectrum = np.abs(fft_vector)
+    normalized_spectrum = magnitude_spectrum / np.sum(magnitude_spectrum)
+    return normalized_spectrum
 
 def FFT_1vowel_1speaker(audio, Fs, N_FFT=512):
     """
     Hàm Trích xuất vector FFT của 1 nguyên âm 1 người (1 audio input)
     """
 
-    # Chia khung tín hiệu, mỗi khung độ dài 20ms
-    frame_length = int(0.020 * Fs)
-    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
-    #Số khung
-    N = frames.shape[1]
-    #Chọn vùng ở giữa, M = N//3 khung
-    M = N//3
+    # Chia khung tín hiệu, mỗi khung độ dài 25ms
+    frame_length = int(0.025 * Fs)
+    hop_length = int(0.01 * Fs)
+    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
 
-    #tính cửa sổ hamming trước khi FFT để chống rò rỉ dữ liệu
-    hamming_window = np.hamming(frame_length)
+    sum_fft = np.zeros(N_FFT, dtype=complex)
+    for frame in (frames.T):  
+        #Vì thư viện Librosa lưu trữ mỗi khung theo từng cột, \
+        # do đó ta cần chuyển vị để các khung sắp xếp theo từng hàng và for each mới đúng
+        windowing_frame = frame * windows.hamming(frame_length)
+        sum_fft += np.abs(np.fft.fft(windowing_frame, N_FFT))
 
-    # Tính biến đổi Fourier nhanh (FFT) từng khung
-    fft_frames = []
-    for frame in frames[M:2*M]:
-        hamming_window_adjusted = hamming_window[:frame.shape[0]]
-        windowed_frame = frame * hamming_window_adjusted
-        fft_result = np.fft.fft(windowed_frame, N_FFT)
-        fft_frames.append(fft_result)
+    avg_fft = sum_fft / len(frames[0])  # Chia cho số lượng khung
 
-    # Tính trung bình cộng vector FFT của M khung
-    avg_fft = np.mean(fft_frames, axis=0)
-
-    return avg_fft
+    return nomalizing_value(avg_fft)[:N_FFT // 2] #Vì vector FFT có tính đối xứng nên chỉ cần lấy 1 nửa
 
 def FFT_1vowel_nspeaker(vowel_label, N_FFT):
     """ Hàm tính vector đặc trưng fft cho 1 nguyên âm (không phụ thuộc người nói)
