@@ -63,7 +63,7 @@ def MFCC_1vowel_1speaker(audio, Fs):
     # Tính vector MFCC từng khung
     mfcc_frames = []
     for frame in (frames.T):
-        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13)
+        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13, n_fft=frame_length, hop_length = frame_length//2)
         #normalized_mfcc = nomalizing_value(np.squeeze(mfcc_result)) #LỖI
         mfcc_frames.append(mfcc_result)
 
@@ -94,7 +94,7 @@ def Mi_MFCC_1vowel_1speaker(audio, Fs):
     # Tính vector MFCC từng khung
     mfcc_frames = []
     for frame in (frames.T):
-        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13)
+        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13, n_fft=frame_length, hop_length = frame_length//2)
         mfcc_frames.append(mfcc_result) 
 
     mfccs = np.mean(mfcc_frames, axis=2)
@@ -220,7 +220,7 @@ if __name__ == "__main__":
             x_test.append(file_path)
             y_test.append(label)
 
-    K = 2#Thay K chỗ này
+    K = 5#Thay K chỗ này
     model1 = build_model(K=K) 
 
     #------------Vẽ đồ thị các vector------------------
