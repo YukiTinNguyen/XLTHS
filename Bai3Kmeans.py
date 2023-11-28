@@ -8,9 +8,9 @@ import pandas as pd
 from sklearn.cluster import KMeans
 
 #Tách nguyên âm - dùng lại
-def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
+def segment_vowel_silence(audio, Fs, threshold = 0.04, min_duration=0.3):
 
-    # Chia khung tín hiệu, mỗi khung độ dài 20ms
+    # Chia khung tín hiệu, mỗi khung độ dài 
     frame_length = int(0.02 * Fs)
     frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length)
     # Tính STE từng khung
@@ -25,7 +25,6 @@ def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
     is_speech_full = np.repeat(is_speech, frame_length)[:len(audio)]
     is_speech_full = np.pad(is_speech_full, (0, len(audio) - len(is_speech_full)), constant_values=False) 
     
-
     # Tìm danh sách khoảng lặng
     silence_segments = librosa.effects.split(audio, top_db=threshold)
 
@@ -35,57 +34,88 @@ def segment_vowel_silence(audio, Fs, threshold = 0.03, min_duration=0.3):
         if duration < min_duration:
             is_speech_full[start:end] = True
 
-    # Trả về tín hiệu chỉ chứa nguyên âm hay tiếng nói
-    vowel = audio[is_speech_full]
-    return vowel 
+    # Tìm vị trí của các khung nguyên âm
+    vowel_indices = np.where(is_speech_full)[0]
+
+    # Chia thành 3 đoạn và lấy đoạn giữa
+    if len(vowel_indices) >= 3:
+        start_index = vowel_indices[len(vowel_indices) // 3]
+        end_index = vowel_indices[2 * len(vowel_indices) // 3]
+        vowel_middle_segment = audio[start_index:end_index]
+    else:
+        vowel_middle_segment = audio
+
+    return vowel_middle_segment
+
+def nomalizing_value(mfcc_vector):
+    return (mfcc_vector - np.mean(mfcc_vector)) / np.std(mfcc_vector)
+    
 #MFCC 1 ng âm, 1 ng, xong
 def MFCC_1vowel_1speaker(audio, Fs):
     """
-    Trả về K vector, biểu diễn cho đặc trưng MFCC của 1 nguyên âm 1 người (1 audio input)
+    Hàm trích xuất vector MFCC của 1 nguyên âm, 1 người nói (1 audio input)
+    Đầu vào: đoạn nguyên âm ổn định và Fs
+    Trả về: vector MFCC 13 chiều của 1 nguyên âm, 1 người nói
     """
-    frame_length = int(0.03 * Fs)
-    hop_length = int(0.02 * Fs)
-    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
-    #Số khung
-    N = frames.shape[1]
-    #Chọn vùng ở giữa, M = N//3 khung
-    M = N//3
+    frame_length = int(0.025 * Fs)
+    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length//2)
 
     # Tính vector MFCC từng khung
     mfcc_frames = []
-    for frame in frames[M:2*M]:
-        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13, n_fft=2048, hop_length=512)
-        mfcc_frames.append(np.squeeze(mfcc_result))
+    for frame in (frames.T):
+        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13)
+        #normalized_mfcc = nomalizing_value(np.squeeze(mfcc_result)) #LỖI
+        mfcc_frames.append(mfcc_result)
 
-    avg_mfcc = np.mean(mfcc_frames, axis=0)
-    return avg_mfcc
+    mfccs = np.mean(mfcc_frames, axis=2)
+    normalized_mfccs = []
+    for mfcc_frame in mfccs:
+        normalized_mfcc_frame = nomalizing_value(mfcc_frame)
+        normalized_mfccs.append(normalized_mfcc_frame)
+
+    # Tính giá trị trung bình của các frame MFCC chuẩn hóa
+    mfccs_mean = np.mean(normalized_mfccs, axis=0)
+    return mfccs_mean
+
+    # avg_mfcc = np.mean(mfcc_frames, axis=0)
+    # return avg_mfcc
 
 def Mi_MFCC_1vowel_1speaker(audio, Fs):
     """
     Hàm Trích xuất vector MFCC của 1 nguyên âm 1 người (1 audio input)
-    Trả về M vector, mỗi vector là 1 mfcc của chỉ 1 khung
+    Đầu vào: đoạn nguyên âm ổn định và Fs
+        Tín hiệu đầu vào được chia ra làm M khung, mỗi khung sẽ tính được 1 MFCC, nhưng không tính avg
+    Trả về: M vector MFCC ứng với M khung
+    Ý nghĩa: để thực hiện K-means trên tất cả các vector MFCC của tất cả các khung, của 21 người nói (xem hàm tiếp theo)
     """
-    frame_length = int(0.03 * Fs)
-    hop_length = int(0.02 * Fs)
-    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
-    #Số khung
-    N = frames.shape[1]
-    #Chọn vùng ở giữa, M = N//3 khung
-    M = N//3
+    frame_length = int(0.025 * Fs)
+    frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=frame_length//2)
 
     # Tính vector MFCC từng khung
     mfcc_frames = []
-    for frame in frames[M:2*M]:
-        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13, n_fft=2048, hop_length=512)
-        mfcc_frames.append(np.squeeze(mfcc_result))
-    return mfcc_frames
+    for frame in (frames.T):
+        mfcc_result = librosa.feature.mfcc(y=frame, sr=Fs, n_mfcc=13)
+        mfcc_frames.append(mfcc_result) 
 
-#2 ĐÃ kết hợp K-means vào
-def MFCC_1vowel_nspeaker(vowel_label, K=2):
+    mfccs = np.mean(mfcc_frames, axis=2)
+    normalized_mfccs = []
+    for mfcc_frame in mfccs:
+        normalized_mfcc_frame = nomalizing_value(mfcc_frame)
+        normalized_mfccs.append(normalized_mfcc_frame)
+
+    return normalized_mfccs
+
+#Tính vector mfcc model ĐÃ kết hợp K-means vào
+def MFCC_1vowel_nspeaker(vowel_label, K=3):
     """ Hàm tính vector đặc trưng MFCC cho 1 nguyên âm (không phụ thuộc người nói)
-        - Đầu vào là 1 ký hiệu nguyên âm ('a',.., 'u') = tên tệp
-        - Bằng cách tính trung bình cộng của 21 người nói khác nhau
-        - Trả về 1 vector MFCC cuối cùng ---> để bỏ vào model
+        * Đầu vào là 1 ký hiệu nguyên âm ('a',.., 'u') = tên tệp
+        * Thuật toán:
+            - chương trình đọc qua từng tệp,
+            - tệp thứ i có tín hiệu chia ra làm M[i] khung
+            - tính được M[i] vector MFCC của mỗi khung (hàm trên) rồi trả về.
+            - Hàm này sẽ thực hiện phân cụm K-means trên tập hợp M[0] + M[1] + ... + M[20] (21 người)
+             để cho ra K vector MFCC ứng với mỗi cụm và có chung 1 nhãn /a/ hoặc /e/ hoặc ... 
+        * Trả về K vector MFCC cuối cùng ---> để bỏ vào model
     """
     name_folders = ["23MTL", "24FTL", "25MLM", "27MCM", "28MVN", "29MHN", "30FTN", "32MTP", "33MHP", "34MQP", "35MMQ",\
          "36MAQ", "37MDS", "38MDS", "39MTS", "40MHS", "41MVS", "42FQT", "43MNT", "44MTT", "45MDV"]
@@ -97,7 +127,7 @@ def MFCC_1vowel_nspeaker(vowel_label, K=2):
         print(file_path)
         audio, Fs = librosa.load(file_path, sr=None)
         vowel = segment_vowel_silence(audio, Fs)
-        mi_mfcc = Mi_MFCC_1vowel_1speaker(vowel, Fs)
+        mi_mfcc = Mi_MFCC_1vowel_1speaker(vowel, Fs) # Mi vector MFCC ứng với mỗi khung, Đã chuẩn hóa
         all_vectors.extend(mi_mfcc)
       
     # Giải thích: mi_mfcc là 1 list chứa mi vector mfcc của mi khung của 1 vowel (1 audio, 1 người)
@@ -114,7 +144,6 @@ def MFCC_1vowel_nspeaker(vowel_label, K=2):
 
     return K_vectors
 
-#Cần kết hợp k-means vào
 def matching(vector_x, model_vectors):
     """Hàm so khớp vector_x (input) và model (các vector tham số của 5 nguyên âm)
     * Đầu vào:
@@ -128,7 +157,6 @@ def matching(vector_x, model_vectors):
     vowels = ['a', 'e', 'i', 'o', 'u']
     # Tính khoảng cách Euclidean giữa vector_x và từng vector trong model_vectors
     distances = [np.linalg.norm(vector_x - vector_clus) for vowel_vectors in model_vectors for vector_clus in vowel_vectors]
-    print(len(distances),len(model_vectors[0]))
     # Xác định nguyên âm có khoảng cách nhỏ nhất
     min_distance_index = np.argmin(distances)
     # Kết quả nhận dạng
@@ -146,7 +174,7 @@ def build_model(K):
     return model_vectors
 
 def readSignals_and_extraction_MFCC(list_path):
-    """Đọc tín hiệu rồi trích xuất vector đặc trưng --> dùng cho kiểm thử
+    """Đọc tín hiệu rồi trích xuất vector đặc trưng --> dùng cho hàm test (kiểm thử)
     """
     mfcc_vectors = []
     for file_path in list_path:
@@ -192,7 +220,7 @@ if __name__ == "__main__":
             x_test.append(file_path)
             y_test.append(label)
 
-    K = 4 #Thay K chỗ này
+    K = 2#Thay K chỗ này
     model1 = build_model(K=K) 
 
     #------------Vẽ đồ thị các vector------------------
