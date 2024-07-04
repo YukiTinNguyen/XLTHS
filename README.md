@@ -92,3 +92,6 @@ và đưa ra quyết định nhận dạng dựa trên k/c nhỏ nhất (SV tự
 - Thuật toán phân cụm K-trung bình: SV có thể tự cài đặt hoặc dùng hàm thư viện có 
 sẵn.
 - Lập bảng báo cáo kết quả độ chính xác nhận dạng tổng hợp (%) theo số cụm K.
+__________________________________________________________________________________________
+
+*Kết quả đã làm: Hoàn thành BT2 và BT3 (xem các file Bai2Final.py và Bai3Final.py)
